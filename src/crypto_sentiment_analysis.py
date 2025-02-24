@@ -8,11 +8,13 @@ from mistralai import Mistral
 from uvicorn import Config, Server
 import json
 from fastapi.middleware.cors import CORSMiddleware
+import requests
 
 API_HASH = dotenv.get_key('.env', 'API_HASH')
 API_ID = dotenv.get_key('.env', 'API_ID')
 PHONE_NUMBER = dotenv.get_key('.env', 'PHONE_NUMBER')
 MISTRAL_API_KEY = dotenv.get_key('.env', 'MISTRAL_API_KEY')
+SCAM_ALERT_AGENT_URL = "http://20.199.77.28:5050/pd-alert"
 
 pnd_groups = [
     'https://t.me/sharks_pump',
@@ -37,6 +39,31 @@ llm = Mistral(api_key=MISTRAL_API_KEY)
 
 pnd_unsent_messages = deque(maxlen=20)  
 news_unsent_messages = deque(maxlen=20) 
+
+
+
+async def send_pd_alert(blog): 
+    try:
+        response = requests.post(SCAM_ALERT_AGENT_URL, json={"blog": blog})
+        response.raise_for_status()
+        return response.json()
+    except requests.exceptions.RequestException as e:
+        print(f"Error sending pd alert: {e}")
+        return None
+    
+   
+
+def get_pd_alert_prompt(message) :
+    return f"""
+You are a sentiment analysis model and chatbot for cryptocurrency topics.
+Your task is to analyze the following Telegram message discussing potential pump and dump schemes.
+For the message, write a short concize egaging blog about it:
+\n\n
+{message}
+\n\n
+"""
+
+
 
 def get_telegram_messages_prompt(messages):
     return f"""
@@ -97,6 +124,13 @@ app.add_middleware(
     allow_headers=["*"],  # Allow all headers
 )
 
+async def get_llm_sentiment_verdict(prompt):
+    chat_response = llm.chat.complete(
+        model=model,
+        messages=[{"role": "user", "content": prompt}],
+    )
+    return chat_response.choices[0].message
+
 def make_event_handler(queue: deque):
     async def handler(event):
         print("Received message:", event.message.text)
@@ -109,6 +143,8 @@ def make_event_handler(queue: deque):
             "text": event.message.text,
             "timestamp": event.message.date.strftime('%Y-%m-%d %H:%M:%S')
         }
+        llm_message =  await get_llm_sentiment_verdict(get_pd_alert_prompt(message_data["text"]))
+        await send_pd_alert(llm_message.content)
         queue.append(message_data)  
         print(f"Queue size is now: {len(queue)}")
     return handler
@@ -129,12 +165,6 @@ async def monitor_groups():
     print("Listening for new messages...")
     await asyncio.Event().wait()
 
-async def get_llm_sentiment_verdict(prompt):
-    chat_response = llm.chat.complete(
-        model=model,
-        messages=[{"role": "user", "content": prompt}],
-    )
-    return chat_response.choices[0].message
 
 @app.get("/pd")
 def get_messages():
