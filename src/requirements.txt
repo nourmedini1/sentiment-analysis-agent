@@ -1,4 +1,4 @@
-
+requests==2.32.3
 telethon==1.38.1
 fastapi==0.115.8
 uvicorn==0.34.0
