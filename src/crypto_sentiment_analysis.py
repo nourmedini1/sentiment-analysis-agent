@@ -166,6 +166,9 @@ async def monitor_groups():
     await asyncio.Event().wait()
 
 
+@app.get("/")
+
+
 @app.get("/pd")
 def get_messages():
     messages_to_send = list(pnd_unsent_messages)  
